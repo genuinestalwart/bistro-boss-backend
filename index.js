@@ -1,4 +1,4 @@
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
@@ -21,27 +21,48 @@ app.get("/", (req, res) => {
 	res.redirect("https://gs-bistro-boss-frontend.vercel.app/");
 });
 
-app.get("/menu", async (req, res) => {
+const run = async () => {
 	try {
 		await client.connect();
-		const menu = client.db("BistroBossDB").collection("menu");
-		const result = await menu.find().toArray();
-		res.send(result);
-	} finally {
-		// await client.close();
-	}
-});
+		const menuColl = client.db("BistroBossDB").collection("menu");
+		const reviewsColl = client.db("BistroBossDB").collection("reviews");
+		const cartsColl = client.db("BistroBossDB").collection("carts");
 
-app.get("/reviews", async (req, res) => {
-	try {
-		await client.connect();
-		const reviews = client.db("BistroBossDB").collection("reviews");
-		const result = await reviews.find().toArray();
-		res.send(result);
+		app.get("/menu", async (req, res) => {
+			const result = await menuColl.find().toArray();
+			res.send(result);
+		});
+
+		app.get("/reviews", async (req, res) => {
+			const result = await reviewsColl.find().toArray();
+			res.send(result);
+		});
+
+		app.get("/carts", async (req, res) => {
+			const { email } = req.query;
+			const result = await cartsColl.find({ email }).toArray();
+			res.send(result);
+		});
+
+		app.post("/carts", async (req, res) => {
+			const { item } = req.body;
+			const result = await cartsColl.insertOne(item);
+			res.send(result);
+		});
+
+		app.delete("/carts/:id", async (req, res) => {
+			const { id } = req.params;
+			const result = await cartsColl.deleteOne({
+				_id: new ObjectId(id),
+			});
+			res.send(result);
+		});
 	} finally {
 		// await client.close();
 	}
-});
+};
+
+run();
 
 app.listen(port, () => {
 	console.log(`Listening to port ${port}`);
