@@ -19,7 +19,7 @@ const client = new MongoClient(uri, {
 });
 
 app.get("/", (req, res) => {
-	res.redirect("https://gs-bistro-boss-frontend.vercel.app/");
+	res.redirect("https://gs-bistro-boss-restaurant.web.app/");
 });
 
 const run = async () => {
