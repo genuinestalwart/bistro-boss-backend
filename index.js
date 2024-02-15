@@ -47,6 +47,7 @@ const run = async () => {
 							.status(401)
 							.send({ message: "unauthorized access" });
 					}
+
 					req.decoded = decoded;
 					next();
 				}
@@ -77,6 +78,30 @@ const run = async () => {
 			const result = await menuColl.find().toArray();
 			res.send(result);
 		});
+
+		app.post("/menu", verifyToken, verifyAdmin, async (req, res) => {
+			const result = await menuColl.insertOne(req.body);
+			res.send(result);
+		});
+
+		app.patch("/menu/:id", verifyToken, verifyAdmin, async (req, res) => {
+			const result = await menuColl.updateOne(
+				{ _id: new ObjectId(req.params.id) },
+				{ $set: req.body }
+			);
+
+			res.send(result);
+		});
+
+		app.delete("/menu/:id", verifyToken, verifyAdmin, async (req, res) => {
+			const result = await menuColl.deleteOne({
+				_id: new ObjectId(req.params.id),
+			});
+
+			res.send(result);
+		});
+
+		//
 
 		app.get("/reviews", async (req, res) => {
 			const result = await reviewsColl.find().toArray();
