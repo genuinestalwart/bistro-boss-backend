@@ -5,6 +5,8 @@ const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const app = express();
 const port = process.env.PORT || 5000;
+const secret = process.env.ACCESS_TOKEN_SECRET;
+const stripe = require("stripe")(process.env.SECRET_KEY);
 app.use(cors());
 app.use(express.json());
 
@@ -25,9 +27,10 @@ app.get("/", (req, res) => {
 const run = async () => {
 	try {
 		// await client.connect();
-		const menuColl = client.db("BistroBossDB").collection("menu");
-		const reviewsColl = client.db("BistroBossDB").collection("reviews");
 		const cartsColl = client.db("BistroBossDB").collection("carts");
+		const menuColl = client.db("BistroBossDB").collection("menu");
+		const paymentColl = client.db("BistroBossDB").collection("payments");
+		const reviewsColl = client.db("BistroBossDB").collection("reviews");
 		const usersColl = client.db("BistroBossDB").collection("users");
 
 		//
@@ -38,20 +41,17 @@ const run = async () => {
 			}
 
 			const token = req.headers.authorization.split(" ")[1];
-			jwt.verify(
-				token,
-				process.env.ACCESS_TOKEN_SECRET,
-				(error, decoded) => {
-					if (error) {
-						return res
-							.status(401)
-							.send({ message: "unauthorized access" });
-					}
 
-					req.decoded = decoded;
-					next();
+			jwt.verify(token, secret, (error, decoded) => {
+				if (error) {
+					return res
+						.status(401)
+						.send({ message: "unauthorized access" });
 				}
-			);
+
+				req.decoded = decoded;
+				next();
+			});
 		};
 
 		const verifyAdmin = async (req, res, next) => {
@@ -65,10 +65,7 @@ const run = async () => {
 		};
 
 		app.post("/auth", (req, res) => {
-			const token = jwt.sign(req.body, process.env.ACCESS_TOKEN_SECRET, {
-				expiresIn: "1h",
-			});
-
+			const token = jwt.sign(req.body, secret, { expiresIn: "1h" });
 			res.send({ token });
 		});
 
@@ -85,19 +82,15 @@ const run = async () => {
 		});
 
 		app.patch("/menu/:id", verifyToken, verifyAdmin, async (req, res) => {
-			const result = await menuColl.updateOne(
-				{ _id: new ObjectId(req.params.id) },
-				{ $set: req.body }
-			);
-
+			const _id = new ObjectId(req.params.id);
+			const update = { $set: req.body };
+			const result = await menuColl.updateOne({ _id }, update);
 			res.send(result);
 		});
 
 		app.delete("/menu/:id", verifyToken, verifyAdmin, async (req, res) => {
-			const result = await menuColl.deleteOne({
-				_id: new ObjectId(req.params.id),
-			});
-
+			const _id = new ObjectId(req.params.id);
+			const result = await menuColl.deleteOne({ _id });
 			res.send(result);
 		});
 
@@ -108,10 +101,28 @@ const run = async () => {
 			res.send(result);
 		});
 
+		app.get("/reviews/:email", async (req, res) => {
+			const { email } = req.params;
+			const result = await reviewsColl.findOne({ email });
+			res.send(result);
+		});
+
+		app.post("/reviews", verifyToken, async (req, res) => {
+			const result = await reviewsColl.insertOne(req.body);
+			res.send(result);
+		});
+
+		app.patch("/reviews/:email", verifyToken, async (req, res) => {
+			const { email } = req.params;
+			const update = { $set: req.body };
+			const result = await reviewsColl.updateOne({ email }, update);
+			res.send(result);
+		});
+
 		//
 
-		app.get("/carts", verifyToken, async (req, res) => {
-			const { email } = req.query;
+		app.get("/carts/:email", verifyToken, async (req, res) => {
+			const { email } = req.params;
 			const result = await cartsColl.find({ email }).toArray();
 			res.send(result);
 		});
@@ -122,10 +133,8 @@ const run = async () => {
 		});
 
 		app.delete("/carts/:id", verifyToken, async (req, res) => {
-			const result = await cartsColl.deleteOne({
-				_id: new ObjectId(req.params.id),
-			});
-
+			const _id = new ObjectId(req.params.id);
+			const result = await cartsColl.deleteOne({ _id });
 			res.send(result);
 		});
 
@@ -137,12 +146,10 @@ const run = async () => {
 		});
 
 		app.post("/users", async (req, res) => {
-			const result = await usersColl.updateOne(
-				{ email: req.body.email },
-				{ $set: req.body },
-				{ upsert: true }
-			);
-
+			const { email } = req.body;
+			const update = { $set: req.body };
+			const upsert = { upsert: true };
+			const result = await usersColl.updateOne({ email }, update, upsert);
 			res.send(result);
 		});
 
@@ -161,20 +168,40 @@ const run = async () => {
 			verifyToken,
 			verifyAdmin,
 			async (req, res) => {
-				const result = await usersColl.updateOne(
-					{ _id: new ObjectId(req.params.id) },
-					{ $set: { role: "admin" } }
-				);
-
+				const _id = new ObjectId(req.params.id);
+				const update = { $set: { role: "admin" } };
+				const result = await usersColl.updateOne({ _id }, update);
 				res.send(result);
 			}
 		);
 
 		app.delete("/users/:id", verifyToken, verifyAdmin, async (req, res) => {
-			const result = await usersColl.deleteOne({
-				_id: new ObjectId(req.params.id),
-			});
+			const _id = new ObjectId(req.params.id);
+			const result = await usersColl.deleteOne({ _id });
+			res.send(result);
+		});
 
+		//
+
+		app.get("/payments/:email", verifyToken, async (req, res) => {
+			const { email } = req.params;
+			const result = await paymentColl.find({ email }).toArray();
+			res.send(result);
+		});
+
+		app.post("/create-payment-intent", verifyToken, async (req, res) => {
+			const { price } = req.body;
+			const amount = parseInt(price * 100);
+			const payment_method_types = ["card"];
+			const intent = { amount, currency: "usd", payment_method_types };
+			const paymentIntent = await stripe.paymentIntents.create(intent);
+			res.send({ clientSecret: paymentIntent.client_secret });
+		});
+
+		app.post("/payments", verifyToken, async (req, res) => {
+			const result = await paymentColl.insertOne(req.body);
+			const objectIDs = req.body.dataIDs.map((id) => new ObjectId(id));
+			await cartsColl.deleteMany({ _id: { $in: objectIDs } });
 			res.send(result);
 		});
 	} finally {
