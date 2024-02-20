@@ -27,9 +27,10 @@ app.get("/", (req, res) => {
 const run = async () => {
 	try {
 		// await client.connect();
+		const bookingsColl = client.db("BistroBossDB").collection("bookings");
 		const cartsColl = client.db("BistroBossDB").collection("carts");
 		const menuColl = client.db("BistroBossDB").collection("menu");
-		const paymentColl = client.db("BistroBossDB").collection("payments");
+		const paymentsColl = client.db("BistroBossDB").collection("payments");
 		const reviewsColl = client.db("BistroBossDB").collection("reviews");
 		const usersColl = client.db("BistroBossDB").collection("users");
 
@@ -140,6 +141,30 @@ const run = async () => {
 
 		//
 
+		app.get("/bookings/:email", verifyToken, async (req, res) => {
+			const { email } = req.params;
+			const result = await bookingsColl.find({ email }).toArray();
+			res.send(result);
+		});
+
+		app.get("/bookings", verifyToken, verifyAdmin, async (req, res) => {
+			const result = await bookingsColl.find().toArray();
+			res.send(result);
+		});
+
+		app.post("/bookings", verifyToken, async (req, res) => {
+			const result = await bookingsColl.insertOne(req.body);
+			res.send(result);
+		});
+
+		app.delete("/bookings/:id", verifyToken, async (req, res) => {
+			const _id = new ObjectId(req.params.id);
+			const result = await bookingsColl.deleteOne({ _id });
+			res.send(result);
+		});
+
+		//
+
 		app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
 			const result = await usersColl.find().toArray();
 			res.send(result);
@@ -185,7 +210,7 @@ const run = async () => {
 
 		app.get("/payments/:email", verifyToken, async (req, res) => {
 			const { email } = req.params;
-			const result = await paymentColl.find({ email }).toArray();
+			const result = await paymentsColl.find({ email }).toArray();
 			res.send(result);
 		});
 
@@ -199,9 +224,17 @@ const run = async () => {
 		});
 
 		app.post("/payments", verifyToken, async (req, res) => {
-			const result = await paymentColl.insertOne(req.body);
+			const result = await paymentsColl.insertOne(req.body);
 			const objectIDs = req.body.dataIDs.map((id) => new ObjectId(id));
-			await cartsColl.deleteMany({ _id: { $in: objectIDs } });
+			const filter = { _id: { $in: objectIDs } };
+
+			if (req.body.category === "Food Order") {
+				await cartsColl.deleteMany(filter);
+			} else if (req.body.category === "Table Booking") {
+				const update = { $set: { paid: true } };
+				await bookingsColl.updateMany(filter, update);
+			}
+
 			res.send(result);
 		});
 	} finally {
