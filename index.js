@@ -178,7 +178,7 @@ const run = async () => {
 			res.send(result);
 		});
 
-		app.get("/users/admin/:email", verifyToken, async (req, res) => {
+		app.get("/admin/:email", verifyToken, async (req, res) => {
 			if (req.decoded.email !== req.params.email) {
 				return res.status(403).send({ message: "forbidden access" });
 			}
@@ -188,17 +188,12 @@ const run = async () => {
 			res.send({ isAdmin });
 		});
 
-		app.patch(
-			"/users/admin/:id",
-			verifyToken,
-			verifyAdmin,
-			async (req, res) => {
-				const _id = new ObjectId(req.params.id);
-				const update = { $set: { role: "admin" } };
-				const result = await usersColl.updateOne({ _id }, update);
-				res.send(result);
-			}
-		);
+		app.patch("/admin/:id", verifyToken, verifyAdmin, async (req, res) => {
+			const _id = new ObjectId(req.params.id);
+			const update = { $set: { role: "admin" } };
+			const result = await usersColl.updateOne({ _id }, update);
+			res.send(result);
+		});
 
 		app.delete("/users/:id", verifyToken, verifyAdmin, async (req, res) => {
 			const _id = new ObjectId(req.params.id);
@@ -215,8 +210,7 @@ const run = async () => {
 		});
 
 		app.post("/create-payment-intent", verifyToken, async (req, res) => {
-			const { price } = req.body;
-			const amount = parseInt(price * 100);
+			const amount = parseInt(req.body.price * 100);
 			const payment_method_types = ["card"];
 			const intent = { amount, currency: "usd", payment_method_types };
 			const paymentIntent = await stripe.paymentIntents.create(intent);
@@ -236,6 +230,71 @@ const run = async () => {
 			}
 
 			res.send(result);
+		});
+
+		app.get("/stats/admin", verifyToken, verifyAdmin, async (req, res) => {
+			const customers = await usersColl.estimatedDocumentCount();
+			const products = await menuColl.estimatedDocumentCount();
+			const orders = await paymentsColl.estimatedDocumentCount();
+
+			const total = await paymentsColl
+				.aggregate([
+					{ $group: { _id: null, revenue: { $sum: "$price" } } },
+				])
+				.toArray();
+
+			const sold = await paymentsColl
+				.aggregate([
+					{ $unwind: "$menuIDs" },
+					{
+						$lookup: {
+							from: "menu",
+							let: { menuID: { $toObjectId: "$menuIDs" } },
+							pipeline: [
+								{
+									$match: {
+										$expr: { $eq: ["$_id", "$$menuID"] },
+									},
+								},
+							],
+							as: "item",
+						},
+					},
+					{ $unwind: "$item" },
+					{
+						$group: {
+							_id: "$item.category",
+							quantity: { $sum: 1 },
+							revenue: { $sum: "$item.price" },
+						},
+					},
+					{ $sort: { _id: 1 } },
+					{
+						$project: {
+							_id: 0,
+							category: "$_id",
+							quantity: "$quantity",
+							revenue: "$revenue",
+						},
+					},
+				])
+				.toArray();
+
+			res.send({
+				customers,
+				orders,
+				products,
+				sold,
+				totalRevenue: total[0] ? total[0].revenue : 0,
+			});
+		});
+
+		app.get("/stats/user/:email", verifyToken, async (req, res) => {
+			const { email } = req.params;
+			const bookings = await bookingsColl.countDocuments({ email });
+			const cart = await cartsColl.countDocuments({ email });
+			const payments = await paymentsColl.countDocuments({ email });
+			res.send({ bookings, cart, payments });
 		});
 	} finally {
 		// await client.close();
